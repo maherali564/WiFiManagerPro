@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background_dark"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textSize="28sp"
+            android:textColor="@color/red_live"
+            android:gravity="center"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvCurrentNetwork"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/current_network"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:background="@color/card_dark"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/status_ready"
+            android:textColor="@color/green_success"
+            android:textSize="13sp"
+            android:background="@color/card_dark"
+            android:padding="12dp"
+            android:layout_marginBottom="16dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/card_dark"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/interval_label"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:layout_marginEnd="8dp" />
+
+            <EditText
+                android:id="@+id/etInterval"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:text="@string/interval_hint"
+                android:inputType="number"
+                android:textColor="@color/text_primary"
+                android:background="@color/card_light"
+                android:padding="8dp"
+                android:textAlignment="center" />
+
+            <Spinner
+                android:id="@+id/spinnerUnit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@color/card_light"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+        <EditText
+            android:id="@+id/etPassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/password_hint"
+            android:inputType="textPassword"
+            android:textColor="@color/text_primary"
+            android:hintTextColor="@color/text_hint"
+            android:background="@color/card_dark"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnRefresh"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_refresh"
+            android:backgroundTint="@color/blue_info"
+            android:textColor="@color/white"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/network_list_title"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <ListView
+            android:id="@+id/listViewNetworks"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:background="@color/card_dark"
+            android:divider="@color/card_light"
+            android:dividerHeight="1dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="12dp">
+
+            <Button
+                android:id="@+id/btnStartService"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_start"
+                android:backgroundTint="@color/green_success"
+                android:textColor="@color/white"
+                android:layout_marginEnd="6dp" />
+
+            <Button
+                android:id="@+id/btnStopService"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_stop"
+                android:backgroundTint="@color/red_error"
+                android:textColor="@color/white"
+                android:layout_marginStart="6dp"
+                android:enabled="false" />
+
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnForgetCurrent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_forget"
+            android:backgroundTint="@color/orange_warning"
+            android:textColor="@color/white"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/btnBypassPortal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_test"
+            android:backgroundTint="@color/purple_accent"
+            android:textColor="@color/white"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp" />
+
+    </LinearLayout>
+
+</ScrollView>
