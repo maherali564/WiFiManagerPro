@@ -196,19 +196,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void testConnection() {
+        tvStatus.setText("🔄 جاري فحص الإنترنت...");
         boolean hasInternet = portalDetector.hasInternetAccess();
         if (hasInternet) {
             Toast.makeText(this, "✅ الإنترنت متصل", Toast.LENGTH_SHORT).show();
             tvStatus.setText("✅ الإنترنت متصل");
             return;
         }
-        boolean bypassed = portalDetector.bypassCaptivePortal();
+
+        tvStatus.setText(getString(R.string.msg_bypassing_portal));
+        PortalBypasser bypasser = new PortalBypasser(portalDetector);
+        boolean bypassed = bypasser.autoBypass();
         if (bypassed) {
-            Toast.makeText(this, getString(R.string.msg_bypass_success), Toast.LENGTH_SHORT).show();
-            tvStatus.setText(getString(R.string.msg_bypass_success));
+            Toast.makeText(this, getString(R.string.msg_bypass_auto_success), Toast.LENGTH_SHORT).show();
+            tvStatus.setText(getString(R.string.msg_bypass_auto_success));
         } else {
-            Toast.makeText(this, getString(R.string.msg_bypass_failed), Toast.LENGTH_SHORT).show();
-            tvStatus.setText(getString(R.string.msg_bypass_failed));
+            Toast.makeText(this, getString(R.string.msg_bypass_auto_failed), Toast.LENGTH_LONG).show();
+            tvStatus.setText(getString(R.string.msg_bypass_auto_failed));
         }
     }
 

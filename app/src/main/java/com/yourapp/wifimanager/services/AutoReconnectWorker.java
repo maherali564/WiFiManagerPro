@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat;
 import com.yourapp.wifimanager.CaptivePortalDetector;
 import com.yourapp.wifimanager.MainActivity;
 import com.yourapp.wifimanager.NetworkManager;
+import com.yourapp.wifimanager.PortalBypasser;
 import com.yourapp.wifimanager.R;
 
 import java.util.concurrent.ExecutorService;
@@ -32,6 +33,7 @@ public class AutoReconnectWorker extends Service {
 
     private NetworkManager networkManager;
     private CaptivePortalDetector portalDetector;
+    private PortalBypasser portalBypasser;
     private ExecutorService executor;
     private ScheduledExecutorService scheduler;
     private Handler mainHandler;
@@ -46,6 +48,7 @@ public class AutoReconnectWorker extends Service {
         Log.i(TAG, "Service Created");
         networkManager = new NetworkManager(this);
         portalDetector = new CaptivePortalDetector(this);
+        portalBypasser = new PortalBypasser(portalDetector);
         executor = Executors.newSingleThreadExecutor();
         scheduler = Executors.newSingleThreadScheduledExecutor();
         mainHandler = new Handler(Looper.getMainLooper());
@@ -88,12 +91,19 @@ public class AutoReconnectWorker extends Service {
                 Log.i(TAG, "Reconnect to target: " + connected);
 
                 if (connected) {
-                    Thread.sleep(1000);
+                    Thread.sleep(2000);
                     boolean hasInternet = portalDetector.hasInternetAccess();
                     if (!hasInternet) {
-                        Log.i(TAG, "No internet, trying to bypass portal...");
-                        boolean bypassed = portalDetector.bypassCaptivePortal();
-                        Log.i(TAG, "Bypass result: " + bypassed);
+                        Log.i(TAG, "No internet, trying auto bypass portal...");
+                        updateNotification("🔄 تجاوز بوابة الدخول...");
+                        boolean bypassed = portalBypasser.autoBypass();
+                        if (bypassed) {
+                            Log.i(TAG, "Auto bypass successful!");
+                        } else {
+                            // Fallback: try simple bypass
+                            Log.i(TAG, "Auto bypass failed, trying simple bypass");
+                            hasInternet = portalDetector.hasInternetAccess();
+                        }
                     }
                     updateNotification("✅ متصل بـ " + targetSSID);
                 } else {
