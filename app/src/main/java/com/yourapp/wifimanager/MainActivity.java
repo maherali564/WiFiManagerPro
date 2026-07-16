@@ -1,8 +1,12 @@
 package com.yourapp.wifimanager;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -97,20 +101,30 @@ public class MainActivity extends AppCompatActivity {
     private void refreshNetworks() {
         tvStatus.setText(getString(R.string.status_loading));
 
-        new Handler().postDelayed(() -> {
-            networks = networkManager.getAvailableNetworks();
-            adapter = new NetworkAdapter(this, networks);
-            listViewNetworks.setAdapter(adapter);
+        // Start fresh scan via BroadcastReceiver
+        BroadcastReceiver scanReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                context.unregisterReceiver(this);
+                networks = networkManager.getAvailableNetworks();
+                adapter = new NetworkAdapter(MainActivity.this, networks);
+                listViewNetworks.setAdapter(adapter);
 
-            String currentSSID = networkManager.getCurrentNetwork() != null ?
-                    networkManager.getCurrentNetwork().getSSID() : null;
-            if (currentSSID != null && currentSSID.startsWith("\"") && currentSSID.endsWith("\"")) {
-                currentSSID = currentSSID.substring(1, currentSSID.length() - 1);
+                String currentSSID = networkManager.getCurrentNetwork() != null ?
+                        networkManager.getCurrentNetwork().getSSID() : null;
+                if (currentSSID != null && currentSSID.startsWith("\"") && currentSSID.endsWith("\"")) {
+                    currentSSID = currentSSID.substring(1, currentSSID.length() - 1);
+                }
+                tvCurrentNetwork.setText(getString(R.string.current_network) + ": " +
+                        (currentSSID != null ? currentSSID : getString(R.string.not_connected)));
+
+                int count = networks.size();
+                tvStatus.setText(count > 0 ? "✅ تم العثور على " + count + " شبكة" : "⚠️ لا توجد شبكات");
             }
-            tvCurrentNetwork.setText(getString(R.string.current_network) + ": " +
-                    (currentSSID != null ? currentSSID : getString(R.string.not_connected)));
-            tvStatus.setText(getString(R.string.status_refreshed));
-        }, 500);
+        };
+
+        registerReceiver(scanReceiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
+        networkManager.startScan();
     }
 
     private void showNetworkOptions(String ssid) {
