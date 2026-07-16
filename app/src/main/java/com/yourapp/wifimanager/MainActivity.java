@@ -285,6 +285,9 @@ public class MainActivity extends AppCompatActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             needed.add(Manifest.permission.POST_NOTIFICATIONS);
+            needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+        } else {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
 
         List<String> missing = new ArrayList<>();
@@ -303,10 +306,15 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
             for (int i = 0; i < permissions.length; i++) {
                 if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
                     Toast.makeText(this, "⚠️ الرجاء منح الصلاحية: " + permissions[i], Toast.LENGTH_LONG).show();
                 }
+            }
+            if (allGranted) {
+                refreshNetworks();
             }
         }
     }
