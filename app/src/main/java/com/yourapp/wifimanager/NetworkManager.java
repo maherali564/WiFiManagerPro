@@ -12,7 +12,6 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
-import android.net.wifi.WifiNetworkSpecification;
 import android.net.wifi.WifiNetworkSuggestion;
 import android.os.Build;
 import android.util.Log;
@@ -162,7 +161,7 @@ public class NetworkManager {
 
         if (password != null && !password.isEmpty()) {
             builder.setWpa2Passphrase(password);
-        } else {
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             builder.setIsOpenNetwork(true);
         }
 
