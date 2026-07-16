@@ -123,7 +123,8 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
-        registerReceiver(scanReceiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
+        registerReceiver(scanReceiver, new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION),
+                Build.VERSION.SDK_INT >= 34 ? Context.RECEIVER_EXPORTED : 0);
         networkManager.startScan();
     }
 
@@ -300,12 +301,11 @@ public class MainActivity extends AppCompatActivity {
         needed.add(Manifest.permission.CHANGE_WIFI_STATE);
         needed.add(Manifest.permission.INTERNET);
         needed.add(Manifest.permission.ACCESS_NETWORK_STATE);
+        needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             needed.add(Manifest.permission.POST_NOTIFICATIONS);
             needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-        } else {
-            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
 
         List<String> missing = new ArrayList<>();

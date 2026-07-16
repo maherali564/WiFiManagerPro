@@ -4,15 +4,23 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.net.wifi.WifiNetworkSpecification;
+import android.net.wifi.WifiNetworkSuggestion;
+import android.os.Build;
 import android.util.Log;
 
 import com.yourapp.wifimanager.models.WifiNetwork;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -140,6 +148,69 @@ public class NetworkManager {
     public boolean connectToNetwork(String ssid, String password) {
         if (ssid == null || ssid.isEmpty()) return false;
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return connectToNetworkApi29(ssid, password);
+        }
+
+        return connectToNetworkLegacy(ssid, password);
+    }
+
+    // API 29+ uses WifiNetworkSuggestion (modern approach)
+    private boolean connectToNetworkApi29(String ssid, String password) {
+        WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder()
+                .setSsid(ssid);
+
+        if (password != null && !password.isEmpty()) {
+            builder.setWpa2Passphrase(password);
+        } else {
+            builder.setIsOpenNetwork(true);
+        }
+
+        WifiNetworkSuggestion suggestion = builder.build();
+        List<WifiNetworkSuggestion> suggestionsList = Collections.singletonList(suggestion);
+
+        int status = wifiManager.addNetworkSuggestions(suggestionsList);
+        if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
+            Log.i(TAG, "Network suggestion added for: " + ssid);
+
+            ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (connectivityManager != null) {
+                wifiManager.disconnect();
+                connectivityManager.bindProcessToNetwork(null);
+
+                NetworkRequest request = new NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                        .build();
+
+                final CountDownLatch latch = new CountDownLatch(1);
+
+                ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+                    @Override
+                    public void onAvailable(Network network) {
+                        Log.i(TAG, "Connected via NetworkRequest: " + network);
+                        connectivityManager.bindProcessToNetwork(network);
+                        latch.countDown();
+                    }
+                };
+
+                connectivityManager.requestNetwork(request, callback);
+                try {
+                    latch.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                connectivityManager.unregisterNetworkCallback(callback);
+            }
+            return true;
+        } else {
+            Log.w(TAG, "addNetworkSuggestions failed with status: " + status);
+            return connectToNetworkLegacy(ssid, password);
+        }
+    }
+
+    private boolean connectToNetworkLegacy(String ssid, String password) {
         WifiConfiguration config = new WifiConfiguration();
         config.SSID = "\"" + ssid + "\"";
 
@@ -152,12 +223,14 @@ public class NetworkManager {
 
         int networkId = wifiManager.addNetwork(config);
         if (networkId == -1) {
-            List<WifiConfiguration> saved = wifiManager.getConfiguredNetworks();
-            if (saved != null) {
-                for (WifiConfiguration savedConfig : saved) {
-                    if (cleanSSID(savedConfig.SSID).equals(ssid)) {
-                        networkId = savedConfig.networkId;
-                        break;
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                List<WifiConfiguration> saved = wifiManager.getConfiguredNetworks();
+                if (saved != null) {
+                    for (WifiConfiguration savedConfig : saved) {
+                        if (cleanSSID(savedConfig.SSID).equals(ssid)) {
+                            networkId = savedConfig.networkId;
+                            break;
+                        }
                     }
                 }
             }
@@ -173,6 +246,15 @@ public class NetworkManager {
     }
 
     public boolean forgetNetwork(String ssid) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            List<WifiNetworkSuggestion> suggestions = Collections.singletonList(
+                    new WifiNetworkSuggestion.Builder().setSsid(ssid).build()
+            );
+            int status = wifiManager.removeNetworkSuggestions(suggestions);
+            Log.i(TAG, "removeNetworkSuggestions for " + ssid + " status=" + status);
+            return status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS;
+        }
+
         List<WifiConfiguration> savedNetworks = wifiManager.getConfiguredNetworks();
         if (savedNetworks == null) return false;
 
