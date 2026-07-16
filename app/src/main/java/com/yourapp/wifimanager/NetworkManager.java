@@ -161,8 +161,6 @@ public class NetworkManager {
 
         if (password != null && !password.isEmpty()) {
             builder.setWpa2Passphrase(password);
-        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            builder.setIsOpenNetwork(true);
         }
 
         WifiNetworkSuggestion suggestion = builder.build();
