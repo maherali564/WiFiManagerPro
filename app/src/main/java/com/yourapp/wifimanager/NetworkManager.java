@@ -4,6 +4,9 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
@@ -141,17 +144,18 @@ public class NetworkManager {
     public boolean connectToNetwork(String ssid, String password) {
         if (ssid == null || ssid.isEmpty()) return false;
 
+        // On API 29+, add a suggestion so the system knows about this network
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return connectToNetworkSuggestion(ssid, password);
+            addSuggestion(ssid, password);
         }
 
+        // Always try legacy add+enable+reconnect — it still works on many devices even on API 31+
+        // and provides an immediate connection attempt vs. suggestions which are passive
         return connectToNetworkLegacy(ssid, password);
     }
 
-    // API 29+: use WifiNetworkSuggestion (the standard approach)
-    private boolean connectToNetworkSuggestion(String ssid, String password) {
-        Log.i(TAG, "Adding network suggestion for: " + ssid);
-
+    // API 29+: add WifiNetworkSuggestion so the system remembers the network
+    private void addSuggestion(String ssid, String password) {
         WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder()
                 .setSsid(ssid);
 
@@ -164,13 +168,9 @@ public class NetworkManager {
 
         int status = wifiManager.addNetworkSuggestions(suggestionsList);
         if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
-            Log.i(TAG, "Network suggestion added successfully for: " + ssid);
-            wifiManager.disconnect();
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
-            return true;
+            Log.i(TAG, "Suggestion added for: " + ssid);
         } else {
-            Log.w(TAG, "addNetworkSuggestions failed with status: " + status);
-            return connectToNetworkLegacy(ssid, password);
+            Log.w(TAG, "addNetworkSuggestions status: " + status);
         }
     }
 
@@ -261,6 +261,26 @@ public class NetworkManager {
 
     public boolean isWifiEnabled() {
         return wifiManager.isWifiEnabled();
+    }
+
+    public String getCurrentSSID() {
+        WifiInfo info = wifiManager.getConnectionInfo();
+        if (info == null) return null;
+        return cleanSSID(info.getSSID());
+    }
+
+    // Get the WiFi Network object for making HTTP requests through WiFi (not default/cellular)
+    public Network getWifiNetwork() {
+        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return null;
+
+        for (Network network : cm.getAllNetworks()) {
+            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                return network;
+            }
+        }
+        return null;
     }
 
     private String cleanSSID(String ssid) {

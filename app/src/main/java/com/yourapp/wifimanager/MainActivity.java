@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.Network;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -215,7 +216,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void testConnection() {
         tvStatus.setText("🔄 جاري فحص الإنترنت...");
-        boolean hasInternet = portalDetector.hasInternetAccess();
+        Network wifiNetwork = networkManager.getWifiNetwork();
+        boolean hasInternet = portalDetector.hasInternetAccess(wifiNetwork);
         if (hasInternet) {
             Toast.makeText(this, "✅ الإنترنت متصل", Toast.LENGTH_SHORT).show();
             tvStatus.setText("✅ الإنترنت متصل");
@@ -224,6 +226,7 @@ public class MainActivity extends AppCompatActivity {
 
         tvStatus.setText(getString(R.string.msg_bypassing_portal));
         PortalBypasser bypasser = new PortalBypasser(portalDetector);
+        bypasser.setWifiNetwork(wifiNetwork);
         boolean bypassed = bypasser.autoBypass();
         if (bypassed) {
             Toast.makeText(this, getString(R.string.msg_bypass_auto_success), Toast.LENGTH_SHORT).show();

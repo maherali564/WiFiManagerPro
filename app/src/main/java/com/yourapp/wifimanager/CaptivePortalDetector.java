@@ -23,20 +23,20 @@ public class CaptivePortalDetector {
         ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return false;
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Network network = cm.getActiveNetwork();
-            if (network == null) return false;
+        Network activeNetwork = cm.getActiveNetwork();
+        if (activeNetwork == null) return false;
 
-            NetworkCapabilities capabilities = cm.getNetworkCapabilities(network);
-            if (capabilities == null) return false;
+        NetworkCapabilities capabilities = cm.getNetworkCapabilities(activeNetwork);
+        if (capabilities == null) return false;
 
-            return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
-        }
-
-        return !hasInternetAccess();
+        return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 
     public boolean hasInternetAccess() {
+        return hasInternetAccess(null);
+    }
+
+    public boolean hasInternetAccess(Network wifiNetwork) {
         String[] urls = {
             "http://connectivitycheck.gstatic.com/generate_204",
             "http://www.google.com/generate_204",
@@ -46,7 +46,12 @@ public class CaptivePortalDetector {
         for (String urlString : urls) {
             try {
                 URL url = new URL(urlString);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                HttpURLConnection connection;
+                if (wifiNetwork != null) {
+                    connection = (HttpURLConnection) wifiNetwork.openConnection(url);
+                } else {
+                    connection = (HttpURLConnection) url.openConnection();
+                }
                 connection.setConnectTimeout(3000);
                 connection.setReadTimeout(3000);
                 connection.setRequestMethod("GET");
@@ -55,7 +60,6 @@ public class CaptivePortalDetector {
                 int responseCode = connection.getResponseCode();
                 String location = connection.getHeaderField("Location");
 
-                // If redirected, we detected a captive portal URL
                 if (responseCode == 302 && location != null) {
                     Log.i(TAG, "Captive portal detected at: " + location);
                 }
@@ -71,6 +75,10 @@ public class CaptivePortalDetector {
     }
 
     public String detectPortalUrl() {
+        return detectPortalUrl(null);
+    }
+
+    public String detectPortalUrl(Network wifiNetwork) {
         String[] probeUrls = {
             "http://connectivitycheck.gstatic.com/generate_204",
             "http://www.google.com/generate_204",
@@ -80,7 +88,12 @@ public class CaptivePortalDetector {
         for (String urlString : probeUrls) {
             try {
                 URL url = new URL(urlString);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                HttpURLConnection connection;
+                if (wifiNetwork != null) {
+                    connection = (HttpURLConnection) wifiNetwork.openConnection(url);
+                } else {
+                    connection = (HttpURLConnection) url.openConnection();
+                }
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(5000);
                 connection.setRequestMethod("GET");
@@ -89,14 +102,12 @@ public class CaptivePortalDetector {
                 int responseCode = connection.getResponseCode();
                 String finalUrl = connection.getURL().toString();
 
-                // If we were redirected away from the probe URL, that's the portal
                 if (responseCode == 200 && !finalUrl.equals(urlString) && !finalUrl.contains("generate_204")) {
                     connection.disconnect();
                     Log.i(TAG, "Portal page: " + finalUrl);
                     return finalUrl;
                 }
 
-                // Also check for 302 with Location header
                 if (responseCode == 302 || responseCode == 307 || responseCode == 303) {
                     String location = connection.getHeaderField("Location");
                     connection.disconnect();

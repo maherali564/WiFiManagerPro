@@ -1,5 +1,6 @@
 package com.yourapp.wifimanager;
 
+import android.net.Network;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -8,7 +9,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,15 +29,20 @@ public class PortalBypasser {
     };
 
     private CaptivePortalDetector detector;
+    private Network wifiNetwork;
 
     public PortalBypasser(CaptivePortalDetector detector) {
         this.detector = detector;
     }
 
+    public void setWifiNetwork(Network wifiNetwork) {
+        this.wifiNetwork = wifiNetwork;
+    }
+
     public boolean autoBypass() {
         Log.i(TAG, "Starting auto bypass...");
 
-        String portalUrl = detector.detectPortalUrl();
+        String portalUrl = wifiNetwork != null ? detector.detectPortalUrl(wifiNetwork) : detector.detectPortalUrl();
         if (portalUrl == null) {
             Log.i(TAG, "No portal URL detected");
             return false;
@@ -45,21 +50,21 @@ public class PortalBypasser {
 
         Log.i(TAG, "Portal URL: " + portalUrl);
 
-        // Step 1: Try form submission (existing)
+        // Step 1: Try form submission
         boolean submitted = attemptFormSubmit(portalUrl);
         if (submitted) {
             try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
-            if (detector.hasInternetAccess()) {
+            if (detector.hasInternetAccess(wifiNetwork)) {
                 Log.i(TAG, "Internet access granted via form!");
                 return true;
             }
         }
 
-        // Step 2: Try clicking keyword links (handles teeba.ps style portals)
+        // Step 2: Try clicking keyword links
         boolean linkClicked = attemptLinkClick(portalUrl);
         if (linkClicked) {
             try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
-            if (detector.hasInternetAccess()) {
+            if (detector.hasInternetAccess(wifiNetwork)) {
                 Log.i(TAG, "Internet access granted via link!");
                 return true;
             }
@@ -82,17 +87,10 @@ public class PortalBypasser {
             try {
                 String bypassUrl = baseUrl + path;
                 Log.i(TAG, "Trying bypass URL: " + bypassUrl);
-                URL url = new URL(bypassUrl);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.setInstanceFollowRedirects(true);
-                int code = conn.getResponseCode();
-                conn.disconnect();
-
+                int code = httpGet(bypassUrl);
                 if (code == 200 || code == 302) {
                     try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
-                    if (detector.hasInternetAccess()) {
+                    if (detector.hasInternetAccess(wifiNetwork)) {
                         Log.i(TAG, "Bypass successful via URL: " + bypassUrl);
                         return true;
                     }
@@ -100,11 +98,10 @@ public class PortalBypasser {
             } catch (IOException ignored) {}
         }
 
-        // Step 4: Try fetching any link that looks like a login/accept endpoint
+        // Step 4: Scan portal page for any <a> with login/free/guest keywords
         try {
             String html = fetchPage(portalUrl);
             if (html != null) {
-                // Look for any <a> tag that might be a login/free access link
                 Pattern linkPattern = Pattern.compile(
                     "<a[^>]*href=[\"']([^\"']*(?:login|free|guest|trial|accept|connect)[^\"']*)[\"'][^>]*>",
                     Pattern.CASE_INSENSITIVE
@@ -117,20 +114,16 @@ public class PortalBypasser {
                         else link = baseUrl + "/" + link;
                     }
                     Log.i(TAG, "Trying discovered link: " + link);
-                    URL url = new URL(link);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-                    conn.setInstanceFollowRedirects(true);
-                    int code = conn.getResponseCode();
-                    conn.disconnect();
-                    if (code == 200 || code == 302) {
-                        try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
-                        if (detector.hasInternetAccess()) {
-                            Log.i(TAG, "Bypass successful via discovered link: " + link);
-                            return true;
+                    try {
+                        int code = httpGet(link);
+                        if (code == 200 || code == 302) {
+                            try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                            if (detector.hasInternetAccess(wifiNetwork)) {
+                                Log.i(TAG, "Bypass successful via discovered link: " + link);
+                                return true;
+                            }
                         }
-                    }
+                    } catch (IOException ignored) {}
                 }
             }
         } catch (Exception e) {
@@ -147,7 +140,6 @@ public class PortalBypasser {
 
             String baseUrl = getBaseUrl(portalUrl);
 
-            // Find all <a> tags
             Pattern aPattern = Pattern.compile(
                 "<a[^>]*href=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)</a>",
                 Pattern.CASE_INSENSITIVE
@@ -184,29 +176,20 @@ public class PortalBypasser {
 
                 Log.i(TAG, "Clicking link: " + fullUrl + " text=\"" + text + "\"");
                 try {
-                    URL url = new URL(fullUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-                    conn.setInstanceFollowRedirects(true);
-                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
-                    int code = conn.getResponseCode();
-                    String finalUrl = conn.getURL().toString();
-                    conn.disconnect();
-
+                    int code = httpGet(fullUrl);
+                    String finalUrl = getRedirectedUrl(fullUrl);
                     Log.i(TAG, "Link response: " + code + " finalUrl=" + finalUrl);
                     try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
-                    if (detector.hasInternetAccess()) {
+                    if (detector.hasInternetAccess(wifiNetwork)) {
                         Log.i(TAG, "Internet granted after clicking link!");
                         return true;
                     }
 
-                    // If we got a form page, try submitting it
                     String redirectHtml = fetchPage(finalUrl);
                     if (redirectHtml != null && !redirectHtml.equals(html)) {
                         List<FormData> forms = extractForms(redirectHtml, baseUrl);
                         for (FormData form : forms) {
-                            if (submitForm(form)) return true;
+                            if (submitForm(form, finalUrl)) return true;
                         }
                     }
                 } catch (IOException ignored) {}
@@ -226,7 +209,6 @@ public class PortalBypasser {
             }
 
             Log.i(TAG, "Page fetched, length: " + html.length());
-
             List<FormData> forms = extractForms(html, portalUrl);
 
             if (forms.isEmpty()) {
@@ -236,20 +218,23 @@ public class PortalBypasser {
 
             for (FormData form : forms) {
                 Log.i(TAG, "Submitting keyword form to: " + form.action);
-                if (submitForm(form)) return true;
+                if (submitForm(form, portalUrl)) return true;
             }
-
         } catch (Exception e) {
             Log.e(TAG, "Error in form submission: " + e.getMessage());
         }
-
         return false;
     }
 
     private String fetchPage(String urlString) {
         try {
             URL url = new URL(urlString);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            HttpURLConnection conn;
+            if (wifiNetwork != null) {
+                conn = (HttpURLConnection) wifiNetwork.openConnection(url);
+            } else {
+                conn = (HttpURLConnection) url.openConnection();
+            }
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(8000);
             conn.setRequestMethod("GET");
@@ -264,7 +249,6 @@ public class PortalBypasser {
             }
             reader.close();
             conn.disconnect();
-
             return html.toString();
         } catch (IOException e) {
             Log.e(TAG, "Failed to fetch page: " + e.getMessage());
@@ -272,11 +256,48 @@ public class PortalBypasser {
         }
     }
 
+    private int httpGet(String urlString) throws IOException {
+        URL url = new URL(urlString);
+        HttpURLConnection conn;
+        if (wifiNetwork != null) {
+            conn = (HttpURLConnection) wifiNetwork.openConnection(url);
+        } else {
+            conn = (HttpURLConnection) url.openConnection();
+        }
+        conn.setConnectTimeout(5000);
+        conn.setReadTimeout(5000);
+        conn.setInstanceFollowRedirects(true);
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
+        int code = conn.getResponseCode();
+        conn.disconnect();
+        return code;
+    }
+
+    private String getRedirectedUrl(String urlString) {
+        try {
+            URL url = new URL(urlString);
+            HttpURLConnection conn;
+            if (wifiNetwork != null) {
+                conn = (HttpURLConnection) wifiNetwork.openConnection(url);
+            } else {
+                conn = (HttpURLConnection) url.openConnection();
+            }
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
+            String finalUrl = conn.getURL().toString();
+            conn.disconnect();
+            return finalUrl;
+        } catch (IOException e) {
+            return urlString;
+        }
+    }
+
     private List<FormData> extractForms(String html, String baseUrl) {
         List<FormData> forms = new ArrayList<>();
         String base = getBaseUrl(baseUrl);
 
-        // Pattern to find <form ...> ... </form>
         Pattern formPattern = Pattern.compile(
             "<form[^>]*(?:action=[\"']([^\"']*)[\"'])?[^>]*>([\\s\\S]*?)</form>",
             Pattern.CASE_INSENSITIVE
@@ -287,7 +308,6 @@ public class PortalBypasser {
             String action = formMatcher.group(1);
             String formContent = formMatcher.group(2);
 
-            // Resolve action URL (default to current page if not specified)
             if (action == null || action.isEmpty()) {
                 action = baseUrl;
             } else if (!action.startsWith("http")) {
@@ -298,7 +318,6 @@ public class PortalBypasser {
                 }
             }
 
-            // Check if this form contains keyword buttons
             boolean hasKeyword = false;
             for (String keyword : KEYWORDS) {
                 if (formContent.contains(keyword)) {
@@ -306,10 +325,8 @@ public class PortalBypasser {
                     break;
                 }
             }
-
             if (!hasKeyword) continue;
 
-            // Extract all input fields
             Map<String, String> fields = new HashMap<>();
             Pattern inputPattern = Pattern.compile(
                 "<input[^>]*(?:name=[\"']([^\"']*)[\"'][^>]*(?:value=[\"']([^\"']*)[\"'])?|value=[\"']([^\"']*)[\"'][^>]*(?:name=[\"']([^\"']*)[\"'])?)[^>]*>",
@@ -325,24 +342,6 @@ public class PortalBypasser {
                 }
             }
 
-            // Also look for <button> or <a> with keywords
-            Pattern buttonPattern = Pattern.compile(
-                "<(?:button|a)[^>]*>([\\s\\S]*?)</(?:button|a)>",
-                Pattern.CASE_INSENSITIVE
-            );
-            Matcher buttonMatcher = buttonPattern.matcher(formContent);
-
-            while (buttonMatcher.find()) {
-                String buttonText = buttonMatcher.group(1).replaceAll("<[^>]*>", "").trim();
-                for (String keyword : KEYWORDS) {
-                    if (buttonText.contains(keyword)) {
-                        Log.i(TAG, "Found keyword '" + keyword + "' in button: " + buttonText);
-                        break;
-                    }
-                }
-            }
-
-            // Look for text nodes containing keywords near submit inputs
             Pattern submitPattern = Pattern.compile(
                 "<input[^>]*type=[\"']submit[\"'][^>]*>",
                 Pattern.CASE_INSENSITIVE
@@ -354,14 +353,18 @@ public class PortalBypasser {
             forms.add(formData);
             Log.i(TAG, "Found form: action=" + action + " fields=" + fields.size() + " hasSubmit=" + hasSubmit);
         }
-
         return forms;
     }
 
-    private boolean submitForm(FormData form) {
+    private boolean submitForm(FormData form, String referer) {
         try {
             URL url = new URL(form.action);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            HttpURLConnection conn;
+            if (wifiNetwork != null) {
+                conn = (HttpURLConnection) wifiNetwork.openConnection(url);
+            } else {
+                conn = (HttpURLConnection) url.openConnection();
+            }
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(8000);
             conn.setRequestMethod("POST");
@@ -369,14 +372,13 @@ public class PortalBypasser {
             conn.setInstanceFollowRedirects(true);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            conn.setRequestProperty("Referer", referer);
 
-            // Build POST data
             StringBuilder postData = new StringBuilder();
             for (Map.Entry<String, String> field : form.fields.entrySet()) {
                 if (postData.length() > 0) postData.append("&");
                 postData.append(field.getKey()).append("=").append(URLEncoder.encode(field.getValue(), "UTF-8"));
             }
-            // If no fields but has submit button, send a dummy field
             if (form.fields.isEmpty()) {
                 postData.append("accept=1");
             }
@@ -396,8 +398,14 @@ public class PortalBypasser {
             conn.disconnect();
 
             Log.i(TAG, "Form submit response: " + responseCode + " finalUrl=" + finalUrl);
-            return responseCode == 200 || responseCode == 302 || responseCode == 204;
 
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+            if (detector.hasInternetAccess(wifiNetwork)) {
+                Log.i(TAG, "Internet granted after form submit!");
+                return true;
+            }
+
+            return responseCode == 200 || responseCode == 302 || responseCode == 204;
         } catch (IOException e) {
             Log.e(TAG, "Form submit failed: " + e.getMessage());
             return false;
@@ -406,7 +414,7 @@ public class PortalBypasser {
 
     private String getBaseUrl(String url) {
         try {
-            URL u = new URL(url);
+            java.net.URL u = new java.net.URL(url);
             String port = u.getPort() == -1 ? "" : ":" + u.getPort();
             return u.getProtocol() + "://" + u.getHost() + port;
         } catch (Exception e) {

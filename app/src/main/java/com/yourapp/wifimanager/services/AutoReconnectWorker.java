@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Network;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -91,8 +92,13 @@ public class AutoReconnectWorker extends Service {
                 Log.i(TAG, "Reconnect to target: " + connected);
 
                 if (connected) {
-                    Thread.sleep(2000);
-                    boolean hasInternet = portalDetector.hasInternetAccess();
+                    Thread.sleep(3000);
+                    // Get the WiFi network object for captive portal requests
+                    Network wifiNetwork = networkManager.getWifiNetwork();
+                    if (wifiNetwork != null) {
+                        portalBypasser.setWifiNetwork(wifiNetwork);
+                    }
+                    boolean hasInternet = portalDetector.hasInternetAccess(wifiNetwork);
                     if (!hasInternet) {
                         Log.i(TAG, "No internet, trying auto bypass portal...");
                         updateNotification("🔄 تجاوز بوابة الدخول...");
@@ -100,9 +106,8 @@ public class AutoReconnectWorker extends Service {
                         if (bypassed) {
                             Log.i(TAG, "Auto bypass successful!");
                         } else {
-                            // Fallback: try simple bypass
-                            Log.i(TAG, "Auto bypass failed, trying simple bypass");
-                            hasInternet = portalDetector.hasInternetAccess();
+                            Log.i(TAG, "Auto bypass failed");
+                            hasInternet = portalDetector.hasInternetAccess(wifiNetwork);
                         }
                     }
                     updateNotification("✅ متصل بـ " + targetSSID);
