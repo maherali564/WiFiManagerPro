@@ -319,7 +319,7 @@ public class PortalBypasser {
 
         // Pattern to find <form ...> ... </form>
         Pattern formPattern = Pattern.compile(
-            "<form[^>]*action=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)</form>",
+            "<form[^>]*(?:action=[\"']([^\"']*)[\"'])?[^>]*>([\\s\\S]*?)</form>",
             Pattern.CASE_INSENSITIVE
         );
         Matcher formMatcher = formPattern.matcher(html);
@@ -328,8 +328,10 @@ public class PortalBypasser {
             String action = formMatcher.group(1);
             String formContent = formMatcher.group(2);
 
-            // Resolve action URL
-            if (!action.startsWith("http")) {
+            // Resolve action URL (default to current page if not specified)
+            if (action == null || action.isEmpty()) {
+                action = baseUrl;
+            } else if (!action.startsWith("http")) {
                 if (action.startsWith("/")) {
                     action = base + action;
                 } else {

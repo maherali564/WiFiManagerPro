@@ -295,6 +295,17 @@ public class NetworkManager {
     }
 
     public boolean forgetCurrentNetwork() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    cm.bindProcessToNetwork(null);
+                }
+            } catch (Exception ignored) {}
+            wifiManager.disconnect();
+            return true;
+        }
+
         WifiInfo wifiInfo = wifiManager.getConnectionInfo();
         if (wifiInfo == null) return false;
 
