@@ -40,7 +40,7 @@
     <string name="msg_bypass_success">✅ تم تجاوز صفحة الدخول</string>
     <string name="msg_bypass_failed">❌ فشل التجاوز</string>
     <string name="msg_no_portal">ℹ️ لا توجد صفحة دخول</string>
-    <string name="msg_service_started">⚡ بدء الإدارة التلقائية: %s كل %d %s</string>
+    <string name="msg_service_started" formatted="false">⚡ بدء الإدارة التلقائية: %s كل %d %s</string>
     <string name="msg_service_stopped">🛑 إيقاف الإدارة التلقائية</string>
     <string name="msg_bypassing_portal">🔄 تجاوز بوابة الدخول تلقائياً...</string>
     <string name="msg_bypass_auto_success">✅ تم تجاوز بوابة مايكروتيك تلقائياً</string>

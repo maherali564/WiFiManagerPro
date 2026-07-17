@@ -21,7 +21,10 @@ public class PortalBypasser {
 
     private static final String[] KEYWORDS = {
         "مجاني", "Free", "اتصال", "Connect", "دخول", "Login", "Guest",
-        "مجاناً", "Free Internet", "نت مجاني", "مجانى", "guest", "free"
+        "مجاناً", "Free Internet", "نت مجاني", "مجانى", "guest", "free",
+        "trial", "hotspot", "click here", "هنا", "تجربة", "تجريبي",
+        "accept", "موافق", "أوافق", "agree", "continue", "متابعة",
+        "sign in", "تسجيل", "اشتراك", "subscribe", "start", "ابدأ"
     };
 
     private CaptivePortalDetector detector;
@@ -33,7 +36,6 @@ public class PortalBypasser {
     public boolean autoBypass() {
         Log.i(TAG, "Starting auto bypass...");
 
-        // Step 1: Detect portal URL
         String portalUrl = detector.detectPortalUrl();
         if (portalUrl == null) {
             Log.i(TAG, "No portal URL detected");
@@ -42,25 +44,37 @@ public class PortalBypasser {
 
         Log.i(TAG, "Portal URL: " + portalUrl);
 
-        // Step 2: Try to auto-submit the form
+        // Step 1: Try form submission (existing)
         boolean submitted = attemptFormSubmit(portalUrl);
         if (submitted) {
-            Log.i(TAG, "Form submitted successfully, checking internet...");
             try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
             if (detector.hasInternetAccess()) {
-                Log.i(TAG, "Internet access granted!");
+                Log.i(TAG, "Internet access granted via form!");
                 return true;
             }
         }
 
-        // Step 3: Try direct common bypass URLs
+        // Step 2: Try clicking keyword links (handles teeba.ps style portals)
+        boolean linkClicked = attemptLinkClick(portalUrl);
+        if (linkClicked) {
+            try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+            if (detector.hasInternetAccess()) {
+                Log.i(TAG, "Internet access granted via link!");
+                return true;
+            }
+        }
+
+        // Step 3: Try common bypass paths
         String baseUrl = getBaseUrl(portalUrl);
         String[] commonBypassPaths = {
             "/login?username=guest&password=guest",
             "/status?free=1",
             "/free",
             "/guest",
-            "/bypass"
+            "/bypass",
+            "/login?dst=&username=guest",
+            "/free-trial",
+            "/trial"
         };
 
         for (String path : commonBypassPaths) {
@@ -76,7 +90,7 @@ public class PortalBypasser {
                 conn.disconnect();
 
                 if (code == 200 || code == 302) {
-                    try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
                     if (detector.hasInternetAccess()) {
                         Log.i(TAG, "Bypass successful via URL: " + bypassUrl);
                         return true;
@@ -85,6 +99,123 @@ public class PortalBypasser {
             } catch (IOException ignored) {}
         }
 
+        // Step 4: Try fetching any link that looks like a login/accept endpoint
+        try {
+            String html = fetchPage(portalUrl);
+            if (html != null) {
+                // Look for any <a> tag that might be a login/free access link
+                Pattern linkPattern = Pattern.compile(
+                    "<a[^>]*href=[\"']([^\"']*(?:login|free|guest|trial|accept|connect)[^\"']*)[\"'][^>]*>",
+                    Pattern.CASE_INSENSITIVE
+                );
+                Matcher linkMatcher = linkPattern.matcher(html);
+                while (linkMatcher.find()) {
+                    String link = linkMatcher.group(1);
+                    if (!link.startsWith("http")) {
+                        if (link.startsWith("/")) link = baseUrl + link;
+                        else link = baseUrl + "/" + link;
+                    }
+                    Log.i(TAG, "Trying discovered link: " + link);
+                    URL url = new URL(link);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+                    conn.setInstanceFollowRedirects(true);
+                    int code = conn.getResponseCode();
+                    conn.disconnect();
+                    if (code == 200 || code == 302) {
+                        try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                        if (detector.hasInternetAccess()) {
+                            Log.i(TAG, "Bypass successful via discovered link: " + link);
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error scanning links: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    private boolean attemptLinkClick(String portalUrl) {
+        try {
+            String html = fetchPage(portalUrl);
+            if (html == null || html.isEmpty()) return false;
+
+            String baseUrl = getBaseUrl(portalUrl);
+
+            // Find all <a> tags with text containing keywords
+            Pattern aPattern = Pattern.compile(
+                "<a[^>]*href=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)</a>",
+                Pattern.CASE_INSENSITIVE
+            );
+            Matcher aMatcher = aPattern.matcher(html);
+
+            while (aMatcher.find()) {
+                String href = aMatcher.group(1);
+                String text = aMatcher.group(2).replaceAll("<[^>]*>", "").trim();
+
+                if (href.isEmpty() || href.startsWith("#") || href.startsWith("javascript")) continue;
+
+                boolean matchesKeyword = false;
+                for (String keyword : KEYWORDS) {
+                    if (text.contains(keyword) || href.contains(keyword)) {
+                        matchesKeyword = true;
+                        break;
+                    }
+                }
+                // Also catch "click here" / "هنا" type links
+                if (!matchesKeyword) {
+                    String lowerText = text.toLowerCase();
+                    String lowerHref = href.toLowerCase();
+                    if (lowerText.contains("click") || lowerText.contains("هنا") ||
+                        lowerHref.contains("login") || lowerHref.contains("free") ||
+                        lowerHref.contains("guest") || lowerHref.contains("trial")) {
+                        matchesKeyword = true;
+                    }
+                }
+
+                if (!matchesKeyword) continue;
+
+                // Resolve href
+                String fullUrl;
+                if (href.startsWith("http")) {
+                    fullUrl = href;
+                } else if (href.startsWith("/")) {
+                    fullUrl = baseUrl + href;
+                } else {
+                    fullUrl = baseUrl + "/" + href;
+                }
+
+                Log.i(TAG, "Clicking link: " + fullUrl + " text=\"" + text + "\"");
+                URL url = new URL(fullUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.setInstanceFollowRedirects(true);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
+                int code = conn.getResponseCode();
+                String finalUrl = conn.getURL().toString();
+                conn.disconnect();
+
+                Log.i(TAG, "Link response: " + code + " finalUrl=" + finalUrl);
+                if (code == 200 || code == 302 || code == 301) {
+                    // Check if we landed on a form page — try submitting that too
+                    String redirectHtml = fetchPage(finalUrl);
+                    if (redirectHtml != null && !redirectHtml.equals(html)) {
+                        List<FormData> forms = extractForms(redirectHtml, baseUrl);
+                        for (FormData form : forms) {
+                            if (submitForm(form)) return true;
+                        }
+                    }
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in link click: " + e.getMessage());
+        }
         return false;
     }
 
