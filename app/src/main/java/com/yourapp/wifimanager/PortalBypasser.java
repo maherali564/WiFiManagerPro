@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -221,7 +222,6 @@ public class PortalBypasser {
 
     private boolean attemptFormSubmit(String portalUrl) {
         try {
-            // Step 1: Fetch page HTML
             String html = fetchPage(portalUrl);
             if (html == null || html.isEmpty()) {
                 Log.w(TAG, "Empty page content");
@@ -230,20 +230,53 @@ public class PortalBypasser {
 
             Log.i(TAG, "Page fetched, length: " + html.length());
 
-            // Step 2: Find forms with submit buttons matching keywords
+            // Extract ALL forms, not just keyword-matching ones
             List<FormData> forms = extractForms(html, portalUrl);
 
             if (forms.isEmpty()) {
-                Log.i(TAG, "No matching forms found");
+                Log.i(TAG, "No forms found");
                 return false;
             }
 
-            // Step 3: Try submitting each matching form
+            // Try keyword-matching forms first
             for (FormData form : forms) {
-                Log.i(TAG, "Submitting form to: " + form.action);
-                boolean success = submitForm(form);
-                if (success) {
-                    return true;
+                if (!form.hasKeywordMatch) continue;
+                Log.i(TAG, "Submitting keyword form to: " + form.action);
+                if (submitForm(form)) return true;
+            }
+
+            // Try ALL forms with various credential combinations
+            for (FormData form : forms) {
+                Log.i(TAG, "Trying form to: " + form.action + " fields=" + form.fields);
+                // For login forms, try common credentials
+                Map<String, String> originalFields = new HashMap<>(form.fields);
+                String[][] credentialSets = {
+                    {"password", ""},
+                    {"password", "guest"},
+                    {"password", "free"},
+                    {"password", "1234"},
+                    {"password", "12345"},
+                    {"password", "123456"},
+                    {"password", "internet"},
+                    {"password", "wifi"},
+                    {"password", "hotspot"},
+                    {"password", "user"},
+                    {"password", "default"},
+                    {"password", "admin"},
+                    {"password", "free123"},
+                    {"password", "trial"},
+                    {"password", "test"},
+                    {"auth_user", "", "auth_pass", ""},
+                    {"auth_user", "guest", "auth_pass", "guest"},
+                    {"accept", "1"},
+                    {"agree", "1"}
+                };
+                for (String[] creds : credentialSets) {
+                    form.fields = new HashMap<>(originalFields);
+                    for (int i = 0; i < creds.length; i += 2) {
+                        form.fields.put(creds[i], creds[i + 1]);
+                    }
+                    if (submitForm(form)) return true;
                 }
             }
 
@@ -313,8 +346,6 @@ public class PortalBypasser {
                 }
             }
 
-            if (!hasKeyword) continue;
-
             // Extract all input fields
             Map<String, String> fields = new HashMap<>();
             Pattern inputPattern = Pattern.compile(
@@ -356,9 +387,9 @@ public class PortalBypasser {
             Matcher submitMatcher = submitPattern.matcher(formContent);
             boolean hasSubmit = submitMatcher.find();
 
-            FormData formData = new FormData(action, fields, hasSubmit);
+            FormData formData = new FormData(action, fields, hasSubmit, hasKeyword);
             forms.add(formData);
-            Log.i(TAG, "Found form: action=" + action + " fields=" + fields.size() + " hasSubmit=" + hasSubmit);
+            Log.i(TAG, "Found form: action=" + action + " fields=" + fields.size() + " hasSubmit=" + hasSubmit + " hasKeyword=" + hasKeyword);
         }
 
         return forms;
@@ -380,7 +411,7 @@ public class PortalBypasser {
             StringBuilder postData = new StringBuilder();
             for (Map.Entry<String, String> field : form.fields.entrySet()) {
                 if (postData.length() > 0) postData.append("&");
-                postData.append(field.getKey()).append("=").append(field.getValue());
+                postData.append(field.getKey()).append("=").append(URLEncoder.encode(field.getValue(), "UTF-8"));
             }
             // If no fields but has submit button, send a dummy field
             if (form.fields.isEmpty()) {
@@ -424,11 +455,13 @@ public class PortalBypasser {
         String action;
         Map<String, String> fields;
         boolean hasSubmitButton;
+        boolean hasKeywordMatch;
 
-        FormData(String action, Map<String, String> fields, boolean hasSubmitButton) {
+        FormData(String action, Map<String, String> fields, boolean hasSubmitButton, boolean hasKeywordMatch) {
             this.action = action;
             this.fields = fields;
             this.hasSubmitButton = hasSubmitButton;
+            this.hasKeywordMatch = hasKeywordMatch;
         }
     }
 }

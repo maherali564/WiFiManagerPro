@@ -12,6 +12,7 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.net.wifi.WifiNetworkSpecification;
 import android.net.wifi.WifiNetworkSuggestion;
 import android.os.Build;
 import android.util.Log;
@@ -147,15 +148,68 @@ public class NetworkManager {
     public boolean connectToNetwork(String ssid, String password) {
         if (ssid == null || ssid.isEmpty()) return false;
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return connectToNetworkApi31(ssid, password);
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return connectToNetworkApi29(ssid, password);
+            return connectToNetworkApi29_30(ssid, password);
         }
 
         return connectToNetworkLegacy(ssid, password);
     }
 
-    // API 29+ uses WifiNetworkSuggestion (modern approach)
-    private boolean connectToNetworkApi29(String ssid, String password) {
+    // API 31+ uses WifiNetworkSpecification + ConnectivityManager (forces immediate connect)
+    private boolean connectToNetworkApi31(String ssid, String password) {
+        try {
+            WifiNetworkSpecification.Builder specBuilder = new WifiNetworkSpecification.Builder()
+                    .setSsid(ssid);
+
+            if (password != null && !password.isEmpty()) {
+                specBuilder.setWpa2Passphrase(password);
+            }
+
+            WifiNetworkSpecification spec = specBuilder.build();
+            NetworkRequest request = new NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .setNetworkSpecifier(spec)
+                    .build();
+
+            ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (connectivityManager == null) return false;
+
+            final CountDownLatch latch = new CountDownLatch(1);
+            final boolean[] connected = {false};
+
+            ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    Log.i(TAG, "Connected to " + ssid + " via NetworkSpecification");
+                    connected[0] = true;
+                    connectivityManager.bindProcessToNetwork(network);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onUnavailable() {
+                    Log.w(TAG, "Network " + ssid + " unavailable");
+                    latch.countDown();
+                }
+            };
+
+            connectivityManager.requestNetwork(request, callback);
+            latch.await(15, TimeUnit.SECONDS);
+            connectivityManager.unregisterNetworkCallback(callback);
+
+            return connected[0];
+        } catch (Exception e) {
+            Log.e(TAG, "connectToNetworkApi31 error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // API 29-30 uses WifiNetworkSuggestion (adds suggestion, system may auto-connect)
+    private boolean connectToNetworkApi29_30(String ssid, String password) {
         WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder()
                 .setSsid(ssid);
 
@@ -170,36 +224,9 @@ public class NetworkManager {
         if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
             Log.i(TAG, "Network suggestion added for: " + ssid);
 
-            ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (connectivityManager != null) {
-                wifiManager.disconnect();
-                connectivityManager.bindProcessToNetwork(null);
+            wifiManager.disconnect();
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
 
-                NetworkRequest request = new NetworkRequest.Builder()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
-                        .build();
-
-                final CountDownLatch latch = new CountDownLatch(1);
-
-                ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
-                    @Override
-                    public void onAvailable(Network network) {
-                        Log.i(TAG, "Connected via NetworkRequest: " + network);
-                        connectivityManager.bindProcessToNetwork(network);
-                        latch.countDown();
-                    }
-                };
-
-                connectivityManager.requestNetwork(request, callback);
-                try {
-                    latch.await(10, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                connectivityManager.unregisterNetworkCallback(callback);
-            }
             return true;
         } else {
             Log.w(TAG, "addNetworkSuggestions failed with status: " + status);
