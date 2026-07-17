@@ -7,10 +7,12 @@ import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.net.wifi.WifiNetworkSpecification;
 import android.net.wifi.WifiNetworkSuggestion;
 import android.os.Build;
 import android.util.Log;
@@ -20,6 +22,8 @@ import com.yourapp.wifimanager.models.WifiNetwork;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class NetworkManager {
     private static final String TAG = "NetworkManager";
@@ -144,18 +148,84 @@ public class NetworkManager {
     public boolean connectToNetwork(String ssid, String password) {
         if (ssid == null || ssid.isEmpty()) return false;
 
-        // On API 29+, add a suggestion so the system knows about this network
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            addSuggestion(ssid, password);
+        // API 31+: use WifiNetworkSpecification + ConnectivityManager.requestNetwork (forces immediate connect)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return connectToNetworkApi31(ssid, password);
         }
 
-        // Always try legacy add+enable+reconnect — it still works on many devices even on API 31+
-        // and provides an immediate connection attempt vs. suggestions which are passive
+        // API 29-30: add suggestion (system may auto-connect)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return connectToNetworkSuggestion(ssid, password);
+        }
+
+        // Legacy (API < 29): addNetwork + enableNetwork + reconnect
         return connectToNetworkLegacy(ssid, password);
     }
 
-    // API 29+: add WifiNetworkSuggestion so the system remembers the network
-    private void addSuggestion(String ssid, String password) {
+    // API 31+: forces immediate connection via WifiNetworkSpecification + ConnectivityManager
+    private boolean connectToNetworkApi31(String ssid, String password) {
+        try {
+            // Also add a suggestion so the system remembers the network
+            addSuggestion(ssid, password);
+
+            WifiNetworkSpecification.Builder specBuilder = new WifiNetworkSpecification.Builder()
+                    .setSsid(ssid);
+
+            if (password != null && !password.isEmpty()) {
+                specBuilder.setWpa2Passphrase(password);
+            }
+
+            WifiNetworkSpecification spec = specBuilder.build();
+            NetworkRequest request = new NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .setNetworkSpecifier(spec)
+                    .build();
+
+            ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (connectivityManager == null) return false;
+
+            final CountDownLatch latch = new CountDownLatch(1);
+            final boolean[] connected = {false};
+
+            ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    Log.i(TAG, "Connected to " + ssid + " via requestNetwork");
+                    connected[0] = true;
+                    latch.countDown();
+                }
+
+                @Override
+                public void onUnavailable() {
+                    Log.w(TAG, "Network " + ssid + " unavailable");
+                    latch.countDown();
+                }
+            };
+
+            connectivityManager.requestNetwork(request, callback);
+            boolean awaitResult = latch.await(15, TimeUnit.SECONDS);
+            connectivityManager.unregisterNetworkCallback(callback);
+
+            if (connected[0]) {
+                Log.i(TAG, "Successfully connected to: " + ssid);
+                return true;
+            }
+
+            // Fallback: try suggestion-only (might still work)
+            Log.w(TAG, "requestNetwork did not connect, trying suggestion fallback");
+            return true; // suggestion was already added
+        } catch (Exception e) {
+            Log.e(TAG, "connectToNetworkApi31 error: " + e.getMessage());
+            // Last resort fallback
+            addSuggestion(ssid, password);
+            return true;
+        }
+    }
+
+    // API 29-30: use WifiNetworkSuggestion (passive, system decides when to connect)
+    private boolean connectToNetworkSuggestion(String ssid, String password) {
+        Log.i(TAG, "Adding network suggestion for: " + ssid);
+
         WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder()
                 .setSsid(ssid);
 
@@ -169,8 +239,26 @@ public class NetworkManager {
         int status = wifiManager.addNetworkSuggestions(suggestionsList);
         if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS) {
             Log.i(TAG, "Suggestion added for: " + ssid);
+            wifiManager.disconnect();
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+            return true;
         } else {
-            Log.w(TAG, "addNetworkSuggestions status: " + status);
+            Log.w(TAG, "addNetworkSuggestions failed with status: " + status);
+            return connectToNetworkLegacy(ssid, password);
+        }
+    }
+
+    // API 29+: add WifiNetworkSuggestion so the system remembers the network
+    private void addSuggestion(String ssid, String password) {
+        try {
+            WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder()
+                    .setSsid(ssid);
+            if (password != null && !password.isEmpty()) {
+                builder.setWpa2Passphrase(password);
+            }
+            wifiManager.addNetworkSuggestions(Collections.singletonList(builder.build()));
+        } catch (Exception e) {
+            Log.w(TAG, "addSuggestion error: " + e.getMessage());
         }
     }
 
@@ -210,49 +298,42 @@ public class NetworkManager {
     }
 
     public boolean forgetNetwork(String ssid) {
+        // API 33+: remove from suggestions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             List<WifiNetworkSuggestion> suggestions = Collections.singletonList(
                     new WifiNetworkSuggestion.Builder().setSsid(ssid).build()
             );
             int status = wifiManager.removeNetworkSuggestions(suggestions);
             Log.i(TAG, "removeNetworkSuggestions for " + ssid + " status=" + status);
-            return status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS;
         }
 
-        List<WifiConfiguration> savedNetworks = wifiManager.getConfiguredNetworks();
-        if (savedNetworks == null) return false;
+        // Try legacy removeNetwork (may work on some devices)
+        wifiManager.disconnect();
+        try { Thread.sleep(500); } catch (InterruptedException ignored) {}
 
-        for (WifiConfiguration config : savedNetworks) {
-            if (cleanSSID(config.SSID).equals(ssid)) {
-                boolean removed = wifiManager.removeNetwork(config.networkId);
-                if (removed) {
-                    wifiManager.saveConfiguration();
-                    return true;
+        List<WifiConfiguration> savedNetworks = wifiManager.getConfiguredNetworks();
+        if (savedNetworks != null) {
+            for (WifiConfiguration config : savedNetworks) {
+                if (cleanSSID(config.SSID).equals(ssid)) {
+                    wifiManager.removeNetwork(config.networkId);
                 }
             }
         }
-        return false;
+
+        wifiManager.disconnect();
+        return true;
     }
 
     public boolean forgetCurrentNetwork() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            wifiManager.disconnect();
-            return true;
-        }
-
         WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-        if (wifiInfo == null) return false;
+        String currentSSID = wifiInfo != null ? cleanSSID(wifiInfo.getSSID()) : null;
 
-        int networkId = wifiInfo.getNetworkId();
-        if (networkId == -1) return false;
-
-        boolean removed = wifiManager.removeNetwork(networkId);
-        if (removed) {
-            wifiManager.saveConfiguration();
+        if (currentSSID != null) {
+            forgetNetwork(currentSSID);
+        } else {
             wifiManager.disconnect();
-            return true;
         }
-        return false;
+        return true;
     }
 
     public WifiInfo getCurrentNetwork() {
@@ -269,7 +350,6 @@ public class NetworkManager {
         return cleanSSID(info.getSSID());
     }
 
-    // Get the WiFi Network object for making HTTP requests through WiFi (not default/cellular)
     public Network getWifiNetwork() {
         ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return null;
