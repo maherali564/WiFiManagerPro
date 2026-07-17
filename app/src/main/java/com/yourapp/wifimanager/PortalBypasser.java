@@ -147,7 +147,7 @@ public class PortalBypasser {
 
             String baseUrl = getBaseUrl(portalUrl);
 
-            // Find all <a> tags with text containing keywords
+            // Find all <a> tags
             Pattern aPattern = Pattern.compile(
                 "<a[^>]*href=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)</a>",
                 Pattern.CASE_INSENSITIVE
@@ -160,27 +160,19 @@ public class PortalBypasser {
 
                 if (href.isEmpty() || href.startsWith("#") || href.startsWith("javascript")) continue;
 
-                boolean matchesKeyword = false;
-                for (String keyword : KEYWORDS) {
-                    if (text.contains(keyword) || href.contains(keyword)) {
-                        matchesKeyword = true;
-                        break;
-                    }
-                }
-                // Also catch "click here" / "هنا" type links
-                if (!matchesKeyword) {
-                    String lowerText = text.toLowerCase();
-                    String lowerHref = href.toLowerCase();
-                    if (lowerText.contains("click") || lowerText.contains("هنا") ||
-                        lowerHref.contains("login") || lowerHref.contains("free") ||
-                        lowerHref.contains("guest") || lowerHref.contains("trial")) {
-                        matchesKeyword = true;
-                    }
-                }
+                String lowerText = text.toLowerCase();
+                String lowerHref = href.toLowerCase();
 
-                if (!matchesKeyword) continue;
+                boolean isTarget = lowerText.contains("free trial") || lowerText.contains("click here") ||
+                                   lowerText.contains("free") || lowerText.contains("trial") ||
+                                   lowerText.contains("guest") || lowerText.contains("هنا") ||
+                                   lowerText.contains("تجربة") || lowerText.contains("مجاني") ||
+                                   lowerText.contains("اتصال") || lowerHref.contains("free") ||
+                                   lowerHref.contains("trial") || lowerHref.contains("guest") ||
+                                   lowerHref.contains("login") || lowerHref.contains("connect");
 
-                // Resolve href
+                if (!isTarget) continue;
+
                 String fullUrl;
                 if (href.startsWith("http")) {
                     fullUrl = href;
@@ -191,19 +183,25 @@ public class PortalBypasser {
                 }
 
                 Log.i(TAG, "Clicking link: " + fullUrl + " text=\"" + text + "\"");
-                URL url = new URL(fullUrl);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.setInstanceFollowRedirects(true);
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
-                int code = conn.getResponseCode();
-                String finalUrl = conn.getURL().toString();
-                conn.disconnect();
+                try {
+                    URL url = new URL(fullUrl);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+                    conn.setInstanceFollowRedirects(true);
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36");
+                    int code = conn.getResponseCode();
+                    String finalUrl = conn.getURL().toString();
+                    conn.disconnect();
 
-                Log.i(TAG, "Link response: " + code + " finalUrl=" + finalUrl);
-                if (code == 200 || code == 302 || code == 301) {
-                    // Check if we landed on a form page — try submitting that too
+                    Log.i(TAG, "Link response: " + code + " finalUrl=" + finalUrl);
+                    try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                    if (detector.hasInternetAccess()) {
+                        Log.i(TAG, "Internet granted after clicking link!");
+                        return true;
+                    }
+
+                    // If we got a form page, try submitting it
                     String redirectHtml = fetchPage(finalUrl);
                     if (redirectHtml != null && !redirectHtml.equals(html)) {
                         List<FormData> forms = extractForms(redirectHtml, baseUrl);
@@ -211,8 +209,7 @@ public class PortalBypasser {
                             if (submitForm(form)) return true;
                         }
                     }
-                    return true;
-                }
+                } catch (IOException ignored) {}
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in link click: " + e.getMessage());
@@ -230,7 +227,6 @@ public class PortalBypasser {
 
             Log.i(TAG, "Page fetched, length: " + html.length());
 
-            // Extract ALL forms, not just keyword-matching ones
             List<FormData> forms = extractForms(html, portalUrl);
 
             if (forms.isEmpty()) {
@@ -238,46 +234,9 @@ public class PortalBypasser {
                 return false;
             }
 
-            // Try keyword-matching forms first
             for (FormData form : forms) {
-                if (!form.hasKeywordMatch) continue;
                 Log.i(TAG, "Submitting keyword form to: " + form.action);
                 if (submitForm(form)) return true;
-            }
-
-            // Try ALL forms with various credential combinations
-            for (FormData form : forms) {
-                Log.i(TAG, "Trying form to: " + form.action + " fields=" + form.fields);
-                // For login forms, try common credentials
-                Map<String, String> originalFields = new HashMap<>(form.fields);
-                String[][] credentialSets = {
-                    {"password", ""},
-                    {"password", "guest"},
-                    {"password", "free"},
-                    {"password", "1234"},
-                    {"password", "12345"},
-                    {"password", "123456"},
-                    {"password", "internet"},
-                    {"password", "wifi"},
-                    {"password", "hotspot"},
-                    {"password", "user"},
-                    {"password", "default"},
-                    {"password", "admin"},
-                    {"password", "free123"},
-                    {"password", "trial"},
-                    {"password", "test"},
-                    {"auth_user", "", "auth_pass", ""},
-                    {"auth_user", "guest", "auth_pass", "guest"},
-                    {"accept", "1"},
-                    {"agree", "1"}
-                };
-                for (String[] creds : credentialSets) {
-                    form.fields = new HashMap<>(originalFields);
-                    for (int i = 0; i < creds.length; i += 2) {
-                        form.fields.put(creds[i], creds[i + 1]);
-                    }
-                    if (submitForm(form)) return true;
-                }
             }
 
         } catch (Exception e) {
@@ -348,6 +307,8 @@ public class PortalBypasser {
                 }
             }
 
+            if (!hasKeyword) continue;
+
             // Extract all input fields
             Map<String, String> fields = new HashMap<>();
             Pattern inputPattern = Pattern.compile(
@@ -389,9 +350,9 @@ public class PortalBypasser {
             Matcher submitMatcher = submitPattern.matcher(formContent);
             boolean hasSubmit = submitMatcher.find();
 
-            FormData formData = new FormData(action, fields, hasSubmit, hasKeyword);
+            FormData formData = new FormData(action, fields, hasSubmit);
             forms.add(formData);
-            Log.i(TAG, "Found form: action=" + action + " fields=" + fields.size() + " hasSubmit=" + hasSubmit + " hasKeyword=" + hasKeyword);
+            Log.i(TAG, "Found form: action=" + action + " fields=" + fields.size() + " hasSubmit=" + hasSubmit);
         }
 
         return forms;
@@ -457,13 +418,11 @@ public class PortalBypasser {
         String action;
         Map<String, String> fields;
         boolean hasSubmitButton;
-        boolean hasKeywordMatch;
 
-        FormData(String action, Map<String, String> fields, boolean hasSubmitButton, boolean hasKeywordMatch) {
+        FormData(String action, Map<String, String> fields, boolean hasSubmitButton) {
             this.action = action;
             this.fields = fields;
             this.hasSubmitButton = hasSubmitButton;
-            this.hasKeywordMatch = hasKeywordMatch;
         }
     }
 }
