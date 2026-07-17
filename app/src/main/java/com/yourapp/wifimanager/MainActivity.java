@@ -6,10 +6,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.provider.Settings;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -57,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
         portalDetector = new CaptivePortalDetector(this);
 
         requestPermissions();
+        requestWriteSettings();
         setupListeners();
         refreshNetworks();
     }
@@ -299,6 +302,7 @@ public class MainActivity extends AppCompatActivity {
         List<String> needed = new ArrayList<>();
         needed.add(Manifest.permission.ACCESS_WIFI_STATE);
         needed.add(Manifest.permission.CHANGE_WIFI_STATE);
+        needed.add(Manifest.permission.CHANGE_NETWORK_STATE);
         needed.add(Manifest.permission.INTERNET);
         needed.add(Manifest.permission.ACCESS_NETWORK_STATE);
         needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
@@ -317,6 +321,15 @@ public class MainActivity extends AppCompatActivity {
 
         if (!missing.isEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    private void requestWriteSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.System.canWrite(this)) {
+            Toast.makeText(this, "⚠️ الرجاء منح صلاحية تعديل الإعدادات من الإعدادات > التطبيقات > صلاحية تعديل الإعدادات", Toast.LENGTH_LONG).show();
+            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
         }
     }
 
